@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visual Question Answering on Chart Images</title>
+  <meta name="description" content="Multi-Scale CNN + Transformer + Cross-Attention Fusion for Visual Question Answering on chart images using the FigureQA dataset.">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,600;0,700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===================== 1. HEADER ===================== -->
+<header class="paper-header">
+  <div class="container">
+    <h1>Visual Question Answering on Chart Images</h1>
+    <p class="subtitle">Multi-Scale CNN + Transformer + Cross-Attention Fusion</p>
+    <p class="author">Ahmad Agah</p>
+    <p class="date">Winter 2026</p>
+    <hr>
+  </div>
+</header>
+
+<!-- ===================== 2. ABSTRACT ===================== -->
+<section id="abstract">
+  <div class="container">
+    <p class="abstract">Teaching machines to understand charts and answer yes/no questions about colors, values, and relationships. I present a two-stream architecture combining a Multi-Scale CNN (or pretrained ResNet-18) with a from-scratch Transformer encoder, fused via stacked cross-attention, achieving <strong>66.08% accuracy</strong> on the FigureQA dataset &mdash; surpassing the original paper's baseline.</p>
+  </div>
+</section>
+
+<!-- ===================== 3. THE PROBLEM ===================== -->
+<section id="problem">
+  <div class="container">
+    <h2>1. What is Visual Question Answering?</h2>
+    <p>Given a chart image and a natural language question, predict <strong>Yes</strong> or <strong>No</strong>. The model must jointly understand visual content and language to reason about data encoded in charts.</p>
+    <p><strong>The core challenge:</strong> Fine-grained color discrimination &mdash; is <em>"Dark Seafoam"</em> greater than <em>"Medium Seafoam"</em>? The model must distinguish between visually similar colors and map them to question tokens.</p>
+  </div>
+</section>
+
+<!-- ===================== 4. FIGUREQA DATASET ===================== -->
+<section id="dataset">
+  <div class="container">
+    <h2>2. FigureQA Dataset</h2>
+  </div>
+
+  <div class="scroll-video-wrap">
+    <div class="scroll-video-pin">
+      <figure class="video-figure">
+        <video muted playsinline preload="auto">
+          <source src="videos/DatasetShowcase.mp4" type="video/mp4">
+        </video>
+        <figcaption>Figure 0: FigureQA dataset &mdash; 100K chart images across 5 types, 1.3M yes/no question-answer pairs, split by image to prevent data leakage.</figcaption>
+      </figure>
+      <p class="scroll-hint">&darr; scroll to scrub</p>
+      <div class="scroll-progress"><div class="scroll-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <table class="stats-table">
+      <tbody>
+        <tr><td>Chart Images</td><td><strong>100,000</strong></td></tr>
+        <tr><td>QA Pairs</td><td><strong>1,327,368</strong></td></tr>
+        <tr><td>Chart Types</td><td><strong>5</strong> (bar, line, pie, dot-line, area)</td></tr>
+        <tr><td>Class Balance</td><td><strong>50/50</strong> Yes/No</td></tr>
+        <tr><td>Image Splits</td><td><strong>80K / 10K / 10K</strong> (train / val / test)</td></tr>
+        <tr><td>Vocabulary</td><td><strong>128</strong> unique words (templated questions)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Question Types</h3>
+    <p>FigureQA uses <strong>15 templated question types</strong> across two categories, requiring diverse visual reasoning beyond simple comparisons:</p>
+    <ul>
+      <li><strong>Identification:</strong> <em>"Is X the minimum/maximum?"</em> &mdash; requires finding extremes across all chart elements</li>
+      <li><strong>Comparison:</strong> <em>"Is X greater/less than Y?"</em> &mdash; pairwise value comparison between two colors</li>
+      <li><strong>Median:</strong> <em>"Is X the median?"</em> &mdash; requires ranking all values to find the middle</li>
+      <li><strong>Smoothness:</strong> <em>"Is X the smoothest/roughest?"</em> &mdash; assessing curve regularity (line/area charts)</li>
+      <li><strong>Intersection:</strong> <em>"Does X intersect Y?"</em> &mdash; detecting line crossings (line charts)</li>
+      <li><strong>Area under curve:</strong> <em>"Does X have the largest/smallest area?"</em> &mdash; estimating cumulative values</li>
+    </ul>
+
+    <p><strong>Why split by image?</strong> Each chart generates ~13 QA pairs. Random splitting would leak visual features across train/val/test sets, inflating accuracy. I split by <em>image</em> to ensure the model never sees the same chart during evaluation.</p>
+  </div>
+</section>
+
+<!-- ===================== 5. ARCHITECTURE OVERVIEW ===================== -->
+<section id="architecture">
+  <div class="container">
+    <h2>3. Architecture Overview</h2>
+    <p>A two-stream architecture that processes images and text in parallel, then fuses them through cross-attention for joint reasoning.</p>
+  </div>
+
+  <div class="scroll-video-wrap">
+    <div class="scroll-video-pin">
+      <figure class="video-figure">
+        <video muted playsinline preload="auto">
+          <source src="videos/VQAPipeline.mp4" type="video/mp4">
+        </video>
+        <figcaption>Figure 1: VQA architecture data flow &mdash; image and question are encoded in parallel, fused via cross-attention, and classified by an MLP.</figcaption>
+      </figure>
+      <p class="scroll-hint">&darr; scroll to scrub</p>
+      <div class="scroll-progress"><div class="scroll-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <p class="text-center text-muted">21.9M parameters (from-scratch CNN) &nbsp;/&nbsp; 26.2M parameters (with ResNet-18)</p>
+  </div>
+</section>
+
+<!-- ===================== 6. IMAGE ENCODER ===================== -->
+<section id="image-encoder">
+  <div class="container">
+    <h2>4. Image Encoder: Multi-Scale CNN</h2>
+    <p>A four-layer convolutional network that extracts features at multiple spatial scales, inspired by PReFIL's multi-scale approach.</p>
+  </div>
+
+  <div class="scroll-video-wrap">
+    <div class="scroll-video-pin">
+      <figure class="video-figure">
+        <video muted playsinline preload="auto">
+          <source src="videos/CNNMultiScale.mp4" type="video/mp4">
+        </video>
+        <figcaption>Figure 2: Multi-scale CNN feature extraction &mdash; mid-level and high-level features are pooled and combined via element-wise addition.</figcaption>
+      </figure>
+      <p class="scroll-hint">&darr; scroll to scrub</p>
+      <div class="scroll-progress"><div class="scroll-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <p>Mid-level features (Conv3) capture color information crucial for chart questions, while high-level features (Conv4) encode spatial relationships between chart elements. Both are pooled to a 7&times;7 grid, projected to 512 dimensions, and combined via element-wise addition with layer normalization.</p>
+  </div>
+</section>
+
+<!-- ===================== 7. TEXT ENCODER ===================== -->
+<section id="text-encoder">
+  <div class="container">
+    <h2>5. Text Encoder: 6-Layer Transformer</h2>
+    <p>A standard Transformer encoder built entirely from scratch &mdash; every attention head, projection, and layer norm hand-implemented.</p>
+
+    <p>Key design choices for the text encoder:</p>
+    <ul>
+      <li><strong>128-word vocabulary</strong> &mdash; Templated questions mean a small vocabulary with no subword tokenization needed.</li>
+      <li><strong>Sinusoidal positional encoding</strong> &mdash; Deterministic, no extra trainable parameters.</li>
+      <li><strong>Padding mask</strong> &mdash; Variable-length questions handled with attention masking.</li>
+      <li><strong>Fully from scratch</strong> &mdash; Self-attention, projections, layer norms all hand-implemented.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== 8. CROSS-ATTENTION FUSION ===================== -->
+<section id="fusion">
+  <div class="container">
+    <h2>6. Where Vision Meets Language</h2>
+    <p>Cross-attention allows text tokens to query image features &mdash; each word learns which spatial regions of the chart are relevant to it.</p>
+  </div>
+
+  <div class="scroll-video-wrap">
+    <div class="scroll-video-pin">
+      <figure class="video-figure">
+        <video muted playsinline preload="auto">
+          <source src="videos/CrossAttentionFusion.mp4" type="video/mp4">
+        </video>
+        <figcaption>Figure 3: Cross-attention fusion &mdash; text queries attend to image keys/values across two layers for multi-step reasoning.</figcaption>
+      </figure>
+      <p class="scroll-hint">&darr; scroll to scrub</p>
+      <div class="scroll-progress"><div class="scroll-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <p><strong>Worked example: "Is navy blue greater than crimson?"</strong> &mdash; Layer 1 locates both colors in the 7&times;7 spatial grid. Layer 2 compares their values. The fused representation is mean-pooled over the sequence to produce a single 512-dim vector, then classified via MLP(512&rarr;512&rarr;2) to predict Yes or No.</p>
+  </div>
+</section>
+
+<!-- ===================== 9. TRAINING SETUP ===================== -->
+<section id="training">
+  <div class="container">
+    <h2>7. Training Setup</h2>
+    <p>Two configurations: one with a from-scratch CNN and one with a pretrained ResNet-18 backbone. Same Transformer, same cross-attention, same MLP.</p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>From-Scratch CNN</th>
+          <th>ResNet-18</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Image Encoder</td>
+          <td>Custom 4-layer CNN</td>
+          <td>Pretrained ResNet-18</td>
+        </tr>
+        <tr>
+          <td>Parameters</td>
+          <td>21.9M</td>
+          <td>26.2M</td>
+        </tr>
+        <tr>
+          <td>Optimizer</td>
+          <td>AdamW (wd=0.01)</td>
+          <td>AdamW (wd=0.01)</td>
+        </tr>
+        <tr>
+          <td>Learning Rate</td>
+          <td>3e-4</td>
+          <td>5e-4</td>
+        </tr>
+        <tr>
+          <td>LR Schedule</td>
+          <td>Cosine + 1-epoch warmup</td>
+          <td>Cosine + 1-epoch warmup</td>
+        </tr>
+        <tr>
+          <td>Batch Size</td>
+          <td>1024 (FP32)</td>
+          <td>4096 (FP16)</td>
+        </tr>
+        <tr>
+          <td>GPU</td>
+          <td>A100 40GB</td>
+          <td>A100 80GB</td>
+        </tr>
+        <tr>
+          <td>Precision</td>
+          <td>FP32</td>
+          <td>FP16 Mixed</td>
+        </tr>
+        <tr>
+          <td>Epochs</td>
+          <td>10</td>
+          <td>10</td>
+        </tr>
+        <tr>
+          <td>Gradient Clip</td>
+          <td>1.0</td>
+          <td>1.0</td>
+        </tr>
+        <tr>
+          <td>Label Smoothing</td>
+          <td>0.1</td>
+          <td>0.1</td>
+        </tr>
+        <tr>
+          <td>Dropout</td>
+          <td>0.15</td>
+          <td>0.15</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== 10. REGULARIZATION ===================== -->
+<section id="regularization">
+  <div class="container">
+    <h2>8. Regularization</h2>
+    <p>Four complementary strategies to prevent overfitting on 1.06M training examples:</p>
+
+    <p><strong>Label Smoothing (0.1)</strong> &mdash; Softens hard targets [1, 0] &rarr; [0.9, 0.1], preventing overconfident predictions and improving generalization.</p>
+
+    <p><strong>Dropout (0.15)</strong> &mdash; Applied in self-attention, feed-forward network, and MLP classifier. Low enough to learn, high enough to regularize.</p>
+
+    <p><strong>Weight Decay (0.01)</strong> &mdash; AdamW decoupled L2 regularization. Penalizes large weights without interfering with adaptive learning rates.</p>
+
+    <p><strong>Transfer Learning</strong> <em>(ResNet only)</em> &mdash; ImageNet pretraining as implicit regularization. Pretrained features constrain the image encoder to a good region of weight space.</p>
+  </div>
+</section>
+
+<!-- ===================== 11. FROM-SCRATCH CNN RESULTS ===================== -->
+<section id="cnn-results">
+  <div class="container">
+    <h2>9. From-Scratch CNN Results</h2>
+  </div>
+
+  <div class="scroll-video-wrap">
+    <div class="scroll-video-pin">
+      <figure class="video-figure">
+        <video muted playsinline preload="auto">
+          <source src="videos/TrainingComparison.mp4" type="video/mp4">
+        </video>
+        <figcaption>Figure 4: Animated training comparison &mdash; the from-scratch CNN plateaus while ResNet-18 continues improving.</figcaption>
+      </figure>
+      <p class="scroll-hint">&darr; scroll to scrub</p>
+      <div class="scroll-progress"><div class="scroll-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <p>The from-scratch CNN achieved <strong>56.72% test accuracy</strong>, with balanced per-class performance: <strong>53.67%</strong> on Yes questions and <strong>59.76%</strong> on No questions. The model plateaued around epochs 7&ndash;8, indicating no class bias but a fundamental ceiling.</p>
+
+    <p>The from-scratch CNN learns general spatial features but struggles with fine-grained color discrimination &mdash; the core challenge of chart VQA. With only 80K training images, four convolutional layers cannot learn the rich color representations needed to distinguish between "Dark Seafoam" and "Medium Seafoam."</p>
+  </div>
+</section>
+
+<!-- ===================== 12. TRANSFER LEARNING ===================== -->
+<section id="transfer-learning">
+  <div class="container">
+    <h2>10. Transfer Learning: ImageNet &rarr; Chart Understanding</h2>
+    <p>Why pretrained features transform chart VQA performance:</p>
+
+    <ul>
+      <li><strong>Rich visual priors</strong> &mdash; ImageNet's 1.2M images of natural scenes teach the network to recognize colors, textures, and edges &mdash; exactly what chart VQA demands.</li>
+      <li><strong>Data efficiency</strong> &mdash; 80K chart images aren't enough to learn color representations from scratch. Pretrained weights provide a massive head start.</li>
+      <li><strong>Low-level transfer</strong> &mdash; Early CNN layers detect edges and color boundaries &mdash; these features transfer directly from photos to charts.</li>
+    </ul>
+
+    <figure>
+      <img src="images/architecture_resnet.png" alt="ResNet-18 architecture diagram">
+      <figcaption>ResNet-18 backbone replaces the from-scratch CNN. Same Transformer + Cross-Attention + MLP.</figcaption>
+    </figure>
+
+    <figure>
+      <img src="images/param_distribution.png" alt="Parameter distribution pie charts">
+      <figcaption>Parameter distribution across model components &mdash; the text encoder dominates in both configurations.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ===================== 13. RESNET-18 RESULTS ===================== -->
+<section id="resnet-results">
+  <div class="container">
+    <h2>11. ResNet-18 Results</h2>
+
+    <p>The ResNet-18 variant achieved <strong>66.08% test accuracy</strong> &mdash; a <strong>+9.4 percentage point</strong> improvement over the from-scratch CNN. The model was still improving at epoch 10 with no plateau, suggesting more epochs could push accuracy toward 70%+.</p>
+
+    <h3>Comparison with Benchmarks</h3>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Accuracy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Random baseline</td>
+          <td>50.0%</td>
+        </tr>
+        <tr>
+          <td><strong>Ours (from-scratch CNN)</strong></td>
+          <td><strong>56.7%</strong></td>
+        </tr>
+        <tr>
+          <td>FigureQA paper baseline</td>
+          <td>~62%</td>
+        </tr>
+        <tr>
+          <td><strong>Ours (ResNet-18)</strong></td>
+          <td><strong>66.1%</strong></td>
+        </tr>
+        <tr>
+          <td>Published SOTA (RN)</td>
+          <td>72&ndash;76%</td>
+        </tr>
+        <tr>
+          <td>Published SOTA (PReFIL)</td>
+          <td>93&ndash;96%</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <figure>
+      <img src="images/accuracy_comparison.png" alt="Bar chart comparing model accuracies against baselines">
+      <figcaption>Accuracy comparison across baselines and my two model variants.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ===================== 14. TRAINING DYNAMICS ===================== -->
+<section id="dynamics">
+  <div class="container">
+    <h2>12. Training Dynamics</h2>
+
+    <p><strong>Warmup phase (epoch 1).</strong> Learning rate ramps linearly from 0 to peak. The model reaches ~55% accuracy during warmup &mdash; necessary for training stability with large batch sizes and the Transformer's sensitivity to initial learning rates.</p>
+
+    <p><strong>CNN plateau (epochs 7&ndash;8).</strong> The from-scratch CNN hits a 56.5% ceiling. This is a fundamental limitation: four convolutional layers trained on 80K images cannot learn the fine-grained color representations that chart VQA requires.</p>
+
+    <p><strong>ResNet keeps learning.</strong> At 66.1% after 10 epochs with no plateau. The pretrained backbone enables continued improvement &mdash; more epochs could push accuracy toward 70%+.</p>
+
+    <p><strong>+15.4pp improvement on Yes questions</strong> (53.7% &rarr; 69.1%), +3.3pp on No questions (59.8% &rarr; 63.1%). Transfer learning disproportionately helps affirmative reasoning &mdash; recognizing that a color <em>is</em> present requires finer visual discrimination than recognizing it is <em>not</em>.</p>
+  </div>
+</section>
+
+<!-- ===================== 15. DESIGN DECISIONS ===================== -->
+<section id="decisions">
+  <div class="container">
+    <h2>13. Design Decisions</h2>
+
+    <p><strong>Why 512 embedding dimension?</strong> Matches ResNet-18's feature map width after adaptive pooling. Divides cleanly into 8 attention heads &times; 64 dimensions each &mdash; the standard configuration from "Attention Is All You Need."</p>
+
+    <p><strong>Why 2 cross-attention layers?</strong> Layer 1 locates relevant image regions for each question token. Layer 2 performs multi-step reasoning &mdash; comparing values between located regions. One layer can find colors; two layers can compare them.</p>
+
+    <p><strong>Why multi-scale CNN?</strong> Mid-level features (Conv3) capture color and edge information crucial for identifying chart elements. High-level features (Conv4) encode spatial layout and relationships between bars, lines, and segments.</p>
+
+    <p><strong>Why split data by image?</strong> Each chart generates ~13 QA pairs. Random splitting would place questions about the same chart in both train and test sets, leaking visual features and inflating accuracy by up to 10%.</p>
+
+    <p><strong>Why mean-pool the fused features?</strong> Simple aggregation over the sequence dimension. Fewer parameters than attention pooling or [CLS] token approaches, and empirically competitive for binary classification tasks.</p>
+
+    <p><strong>Why sinusoidal positional encoding?</strong> Deterministic, requires no extra trainable parameters. With only 128 vocabulary words and 32 max sequence length, learned encodings offer no advantage over the analytical sinusoidal formula.</p>
+  </div>
+</section>
+
+<!-- ===================== 16. CONCLUSION & FUTURE WORK ===================== -->
+<section id="conclusion">
+  <div class="container">
+    <h2>14. Conclusion</h2>
+
+    <p><strong>Transfer learning works.</strong> +9.4 percentage points from ImageNet pretraining. Pretrained color and texture features transfer directly to chart understanding, beating the FigureQA paper baseline.</p>
+
+    <p><strong>Cross-attention fuses modalities.</strong> Two-layer cross-attention successfully bridges vision and language. Text tokens learn to attend to spatially relevant image regions for multi-step reasoning.</p>
+
+    <p><strong>Color is the bottleneck.</strong> Fine-grained color discrimination remains the core challenge. The gap between 66% and SOTA 93%+ is primarily about distinguishing visually similar chart colors.</p>
+
+    <h3>Future Work</h3>
+    <ul>
+      <li><strong>More epochs</strong> &mdash; ResNet was still improving at epoch 10. Training for 20&ndash;30 epochs could push accuracy toward 70%+.</li>
+      <li><strong>Larger backbones</strong> &mdash; ResNet-50 or Vision Transformer (ViT) for richer visual representations.</li>
+      <li><strong>Open-ended QA</strong> &mdash; Extend beyond binary Yes/No to free-form answers about chart values and trends.</li>
+      <li><strong>Attention visualization</strong> &mdash; Overlay cross-attention weights on charts to show which regions the model attends to for each question.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== 17. FOOTER ===================== -->
+<footer class="footer">
+  <div class="container">
+    <hr>
+    <p><strong>Built by Ahmad Agah</strong></p>
+    <p><a href="https://github.com/ahmadagah" target="_blank" rel="noopener">GitHub</a></p>
+    <p class="made-with">Made with PyTorch, Manim, and too much coffee.</p>
+  </div>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>
